@@ -1,0 +1,10 @@
+metric,value
+num_images,1332
+num_smoke_frames,1234
+total_gt_boxes,1400
+true_positive,472
+false_positive,921
+false_negative,928
+precision,33.88
+recall_true_positive_rate,33.71
+f1_score,33.8
