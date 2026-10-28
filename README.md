@@ -1,6 +1,6 @@
 # Smoke Detection using Background Subtraction + Fuzzy C-Means
 
-A Python (no MATLAB) implementation inspired by:
+A Python implementation inspired by:
 
 > S.R. Vijayalakshmi, S. Muruganand, *"Smoke detection in video images using
 > background subtraction method for early fire alarm system"*, ICCES 2017.
