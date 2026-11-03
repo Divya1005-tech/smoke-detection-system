@@ -1,153 +1,162 @@
-# Smoke Detection using Background Subtraction + Fuzzy C-Means
+# Smoke Detection in Still Images
 
-A Python implementation inspired by:
+Smoke detection in still photographs using colour and texture features, Fuzzy C-Means (FCM) or Random Forest classification, and smartphone push alerts.
 
-> S.R. Vijayalakshmi, S. Muruganand, *"Smoke detection in video images using
-> background subtraction method for early fire alarm system"*, ICCES 2017.
+This project is based on the background-subtraction and FCM method of Vijayalakshmi and Muruganand [1], which works on video. Because a single photo has no background frame, this version replaces frame differencing with colour and edge rules that propose candidate smoke regions. It then classifies each region and sends an alert to a phone when smoke is found.
 
-Adapted to run on the **D-Fire dataset** (still images with YOLO-format
-smoke/fire bounding boxes) instead of raw video, plus an optional true
-video mode that follows the paper's method exactly, and a working
-notification system (local alert + real SMS via Twilio) that the paper's
-own title promises but never actually implements.
+> **Disclaimer:** this is a student prototype. It produces many false alarms and misses smoke, so it must **not** be used as a life-safety fire alarm.
 
----
+## Features
 
-## 1. How this maps to the paper
+- **Candidate regions from a single image:** HSV colour thresholds, local edge density, morphological clean-up and connected components.
+- **Seven features per region:** mean hue, saturation and value, edge density, solidity, extent and Laplacian variance (a sharpness measure).
+- **Two classifiers:**
+  - a trained **Random Forest** (used automatically if `models/smoke_classifier.joblib` exists);
+  - **FCM** clustering from the reference paper (used as a fallback).
+- **Evaluation** against D-Fire ground-truth boxes (IoU matching, precision, recall, F1).
+- **Alerts:** terminal banner with beeps (Windows) and a high-priority push notification through [ntfy](https://ntfy.sh).
+- **Video mode:** frame differencing, with periodic smoke classification of frames.
 
-| Paper section | This project |
-|---|---|
-| Sec II.1 — Background Subtraction (frame differencing, Eq. 1–2) | `src/background_subtraction.py` — `VideoFrameDifferencer` implements this literally for **video**. For **still images** (no paired background frame exists), `single_image_candidate_regions()` uses the smoke colour/edge description from **Sec 2.1** (low saturation, whitish-to-blackish colour, soft/diffuse edges) to produce an equivalent foreground candidate mask. |
-| Sec 2.1 — Features of smoke | `src/features.py` — per-blob features: hue, saturation, value, edge density, solidity, extent, and **blur variance** (texture sharpness — an addition beyond the paper, added to reject pale hard-edged objects like cars). |
-| Sec II — FCM clustering (Eq. 3–6) | `src/fcm.py` — Fuzzy C-Means implemented directly from the paper's equations (numpy only, no external clustering library required). |
-| Sec III — Table I / II (True Positive %, False Positive %) | `src/evaluate.py` + `main.py evaluate` — computes the same style of metrics against D-Fire's ground-truth boxes on the full 3,600+ image test set, saved as CSV in `outputs/reports/`. |
-| Fig. 1–3 (original / mask / detected) | `main.py image` saves exactly this 3-panel comparison to `outputs/boxes/*_sidebyside.png`. |
-| Title says "early fire **alarm** system" but paper never builds one | `src/alert.py` (local terminal alert + beep) and `src/sms_alert.py` (real SMS via Twilio) — this project actually implements the alarm/notification step. |
-
-**Why still images instead of true background subtraction:** the paper's
-core method needs a static background frame and a moving foreground across
-a video sequence. D-Fire is a dataset of individual photos, so there's no
-"previous frame" to subtract. This project keeps the same overall pipeline
-shape (foreground/candidate proposal → smoke features → FCM classification)
-but swaps the foreground-proposal step for one based on the smoke
-color/edge description the paper itself uses in Section 2.1.
-
----
-
-## 2. Project structure
+## How it works
 
 ```
-smoke_detection_project/
-├── data/DFireDataset/
-│   ├── train/{images,labels}/   <- put your D-Fire train data here
-│   └── test/{images,labels}/    <- put your D-Fire test data here
-├── src/
-│   ├── background_subtraction.py
-│   ├── fcm.py
-│   ├── features.py
-│   ├── dataset.py
-│   ├── detect_image.py
-│   ├── evaluate.py
-│   ├── alert.py         <- local terminal alert + beep
-│   ├── sms_alert.py      <- real SMS notification via Twilio
-│   └── utils.py
-├── outputs/
-│   ├── masks/     <- saved candidate/segmentation masks
-│   ├── boxes/     <- saved detection images (boxes drawn) + side-by-side figures
-│   └── reports/   <- CSV summary + per-image evaluation tables
-├── main.py
+image -> HSV colour mask + soft-edge mask -> clean-up -> candidate regions
+      -> 7 features per region -> Random Forest (or FCM) -> smoke / not smoke
+      -> terminal alarm + phone notification
+```
+
+## Project structure
+
+```
+.
+├── main.py                       # command-line entry point
 ├── requirements.txt
-└── README.md
+├── src/
+│   ├── background_subtraction.py # candidate regions; frame differencing for video
+│   ├── features.py               # 7-feature vector per region
+│   ├── fcm.py                    # Fuzzy C-Means (NumPy only)
+│   ├── train_classifier.py       # trains and saves the Random Forest
+│   ├── detect_image.py           # single-image pipeline
+│   ├── evaluate.py               # IoU matching, precision / recall / F1
+│   ├── dataset.py, utils.py      # label parsing, IoU, drawing helpers
+│   ├── alert.py                  # terminal alarm
+│   └── phone_alert.py            # ntfy push notification
+├── data/DFireDataset/            # NOT included - download it yourself (see below)
+├── models/                       # saved model (created by the train command)
+└── outputs/                      # masks, detections, CSV reports
 ```
 
----
+## Installation
 
-## 3. Setup
+Requires Python 3.10 or newer (tested with Python 3.12 and 3.14).
 
 ```bash
+git clone https://github.com/[YOUR-USERNAME]/[YOUR-REPO].git
+cd [YOUR-REPO]
 pip install -r requirements.txt
 ```
 
-## 4. Add your dataset
+## Dataset
 
-Copy your downloaded D-Fire files so they look like:
+The D-Fire dataset is not included in this repository. Download it from
+https://github.com/gaia-solutions-on-demand/DFireDataset and arrange it like this:
 
 ```
-data/DFireDataset/train/images/xxxx.jpg
-data/DFireDataset/train/labels/xxxx.txt
-data/DFireDataset/test/images/xxxx.jpg
-data/DFireDataset/test/labels/xxxx.txt
+data/DFireDataset/
+├── train/
+│   ├── images/   *.jpg
+│   └── labels/   *.txt
+└── test/
+    ├── images/   *.jpg
+    └── labels/   *.txt
 ```
 
-> D-Fire label format per line: `class_id x_center y_center width height`
-> (all normalized 0–1). Default assumes `0 = smoke`, `1 = fire` — adjust
-> `CLASS_SMOKE` at the top of `src/utils.py` if your copy differs.
+Labels are in YOLO format: `class x_centre y_centre width height`, normalised to 0-1. The code treats **class 0 as smoke** and class 1 as fire, so check this against the version of the dataset you use. If your copy differs, change `CLASS_SMOKE` in `src/utils.py`. Only smoke boxes are used.
 
-## 5. Run it
+## Usage
 
-**Single image (produces original / mask / detected figure):**
+Use `python` instead of `py` if you are not on Windows.
+
+**Detect smoke in one image**
+
 ```bash
-python main.py image --input data/DFireDataset/test/images/some_image.jpg
+py main.py image --input path/to/photo.jpg
 ```
-If smoke is detected, this also triggers a local terminal alert (`src/alert.py`)
-and attempts to send an SMS (`src/sms_alert.py`, no-op until Twilio is configured).
-Outputs go to `outputs/masks/` and `outputs/boxes/`.
 
-**Evaluate a whole split against ground truth (paper-style Table I/II):**
+Saves the candidate mask, the detections and a side-by-side figure to `outputs/`, and sends the alert if smoke is found.
+
+**Train the Random Forest**
+
 ```bash
-python main.py evaluate --split test
+py main.py train --split test --limit 400
 ```
-Outputs go to `outputs/reports/test_summary.csv` and `test_per_image.csv`.
 
-Useful flags: `--iou-thresh 0.3` (how much overlap counts as a correct
-detection), `--min-area 600` (ignore tiny noise blobs), `--limit 50` (only
-evaluate the first 50 images while testing).
+Trains on the first 400 images of the chosen split and saves `models/smoke_classifier.joblib`. After that, the image and evaluate commands use the Random Forest automatically. Delete the model file to go back to FCM.
 
-**(Optional) literal paper method on a real video file:**
+**Evaluate against ground truth**
+
 ```bash
-python main.py video --input path/to/clip.mp4 --threshold 5
+py main.py evaluate --split test
 ```
 
-## 6. Setting up the SMS alert (optional)
+Options: `--limit N` (only the first N images), `--skip N` (ignore the first N images), `--iou-thresh 0.3`, `--min-area 600`. Results are saved to `outputs/reports/`.
 
-1. Create a free account at https://twilio.com/try-twilio
-2. Copy your **Account SID**, **Auth Token**, and free **Twilio phone number**
-   from the console (console.twilio.com)
-3. Verify each recipient's phone number under
-   *Phone Numbers > Manage > Verified Caller IDs* (required on trial accounts)
-4. Open `src/sms_alert.py` and fill in `TWILIO_ACCOUNT_SID`,
-   `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_NUMBER`, and the `RECIPIENTS` list
-   with your verified numbers.
+To avoid testing on training images, skip the images you trained on:
 
-**Important:** this SMS feature is a working technical prototype for a
-student project demo — not a production emergency system. Given this
-detector's measured false-positive rate (see Section 7), it should never be
-connected to real residents or a real fire department without a much more
-accurate detector, human review before any alert is sent, and proper
-authorization from the relevant authorities.
+```bash
+py main.py evaluate --split test --skip 400
+```
 
----
+**Video**
 
-## 7. Results (measured on the full D-Fire test set, 3,622 images)
+```bash
+py main.py video --input path/to/video.mp4
+```
 
-| Metric | IoU ≥ 0.3 (strict) | IoU ≥ 0.1 (loose) |
-|---|---|---|
-| Precision | 6.27% | 9.47% |
-| Recall (True Positive Rate) | 20.43% | 30.86% |
-| F1 Score | 9.6% | 14.49% |
+Run `py main.py video --help` to see all video options.
 
-The original paper reports ~85–90% accuracy on a small set of controlled
-videos using true frame-differencing with a fixed camera background. This
-project's much lower numbers on a large, diverse, real-world still-image
-dataset reflect two main, diagnosed failure modes:
+## Phone alerts (ntfy)
 
-1. **Coarse localization** — the detector often finds the right general
-   area of smoke but draws an oversized region (e.g. an entire hazy sky)
-   instead of a tight box, hurting IoU-based matching against precise
-   human-drawn ground truth.
-2. **Color ambiguity** — clouds and pale objects (cars, road markings)
-   share smoke's low-saturation "greyish/whitish" signature, causing false
-   positives; conversely, fire-lit smoke at night appears orange/red (high
-   saturation) and is missed entirely by the same color rule, causing false
-   negatives.
+1. Install the **ntfy** app on your phone and subscribe to a topic with a name that is hard to guess.
+2. Set the same name in `src/phone_alert.py`:
+
+   ```python
+   TOPIC = "your-private-topic-name"
+   ```
+
+3. On Android, open the ntfy notification settings and allow the highest-priority channel to make sound and vibrate (and to override Do Not Disturb if you want).
+
+A successful request only means ntfy received the message. Whether the phone makes a sound depends on its notification settings, volume and network connection. ntfy topics are public unless you set up access control, so never send sensitive information, and do not commit your real topic name to a public repository.
+
+## Results
+
+Evaluated on D-Fire images at an IoU threshold of 0.3:
+
+| Run | Images | TP | FP | FN | Precision | Recall | F1 |
+|---|---|---|---|---|---|---|---|
+| Random Forest, all working-copy images | 1,332 | 472 | 921 | 928 | 33.88 % | 33.71 % | 33.80 % |
+| Random Forest, held-out images only | 932 | 369 | 729 | 649 | 33.61 % | 36.25 % | 34.88 % |
+| FCM only (earlier run, different image set) | 3,622 | 435 | 6,502 | 1,694 | 6.27 % | 20.43 % | 9.60 % |
+
+
+## Limitations
+
+- Colour and edge thresholds are fixed, and candidate regions are often too large or badly placed, which lowers IoU-based scores.
+- Clouds, haze, pale objects and light-coloured vehicles can look like smoke to the colour rules, and smoke lit orange by flames at night can be missed.
+- Only smoke is detected; flames are not a separate class.
+- The classifier was trained on only 400 images (874 candidate regions).
+- The video mode was only checked on a synthetic clip.
+
+## Future work
+
+- Replace or add a trained detector for smoke and fire, such as a YOLO model.
+- Add hard negative examples (clouds, haze) to the training data.
+- Compare FCM and the Random Forest on exactly the same held-out set, and report average precision and inference time.
+- Combine the video motion masks directly with the classifier and test live camera feeds.
+- Add delivery checks for alerts and require a human to confirm detections.
+
+## References
+
+1. S. R. Vijayalakshmi and S. Muruganand, "Smoke detection in video images using background subtraction method for early fire alarm system," in *Proc. 2nd Int. Conf. Communication and Electronics Systems (ICCES)*, 2017, pp. 167-171.
+2. Gaia Solutions on Demand, "D-Fire: An image data set for fire and smoke detection," GitHub repository. https://github.com/gaia-solutions-on-demand/DFireDataset
 
