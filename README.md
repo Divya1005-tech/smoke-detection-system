@@ -151,17 +151,3 @@ dataset reflect two main, diagnosed failure modes:
    saturation) and is missed entirely by the same color rule, causing false
    negatives.
 
-## 8. What to present
-
-- Section explaining the paper's method (Sec II).
-- Your adaptation decision (video → still images) and why (Section 1 above).
-- Code walkthrough: background subtraction → features → FCM (equations 3–6
-  match your `fcm.py` line-for-line).
-- Results table from `outputs/reports/test_summary.csv`, and a few
-  side-by-side figures from `outputs/boxes/` (pick 2-3 correct detections
-  and 2-3 clear failures, e.g. the car false-positive and the missed
-  night-fire case).
-- The alert/SMS system as your added "alarm" contribution beyond the paper.
-- Discussion of limitations and future work (a trained deep-learning
-  detector, e.g. YOLO, would likely close most of this gap — D-Fire's own
-  labels are designed for exactly that).
